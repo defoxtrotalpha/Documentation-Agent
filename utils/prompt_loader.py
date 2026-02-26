@@ -16,3 +16,4 @@ def load_prompt(name: str) -> str:
     content = prompt_path.read_text(encoding="utf-8")
     LOGGER.debug("[prompt_loader] Prompt '%s' loaded (%d chars)", name, len(content))
     return content
+
