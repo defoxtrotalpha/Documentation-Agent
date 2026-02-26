@@ -1,0 +1,14 @@
+You are a documentation agent. Create a markdown document for the backend.
+
+Requirements:
+- Output markdown only.
+- Use headings and short paragraphs.
+- Include a directory tree section.
+- Include a mermaid diagram if it helps clarify flow.
+- Do not Include text "```markdown" in the beginning of the markdown file. It makes the file unrenderable.
+- Make sure that the mermaid diagram is renderable. Does not have syntax issues. Example node: B -- Start from Scratch --> H["setValue(1): Blank Report Fields"].
+- If details are missing, add a TODO note.
+
+Context:
+Directory tree:
+{directory_tree}

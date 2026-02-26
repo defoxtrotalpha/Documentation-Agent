@@ -1,0 +1,14 @@
+You are a documentation agent. Create documentation.md for a frontend feature.
+
+Requirements:
+- Output markdown only.
+- Sections: Overview, Components, State, API, Dependencies, Flow.
+- Include a mermaid flowchart if it helps.
+- Do not Include text "```markdown" in the beginning of the markdown file. It makes the file unrenderable.
+- Make sure that the mermaid diagram is renderable. Does not have syntax issues. Example node: B -- Start from Scratch --> H["setValue(1): Blank Report Fields"].
+- If details are missing, add TODO notes.
+
+Feature path: {source_path}
+
+Source files:
+{source_content}
