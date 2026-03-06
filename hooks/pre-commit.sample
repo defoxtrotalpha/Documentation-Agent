@@ -1,0 +1,10 @@
+#!/bin/sh
+# Pre-commit hook for Documentation Agent
+# Runs the doc orchestrator on staged changes before commit
+
+python documentation_agent/doc_orchestrator.py --repo-root . --staged
+RESULT=$?
+if [ $RESULT -ne 0 ]; then
+  echo "[doc-agent] Documentation generation failed. Commit aborted."
+  exit 1
+fi
