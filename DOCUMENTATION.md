@@ -12,9 +12,11 @@ via content hashes stored in `_doc_metadata.json` sidecars).
 1. [Architecture Overview](#architecture-overview)
 2. [Execution Flow](#execution-flow)
 3. [File Reference](#file-reference)
-4. [LLM Provider Configuration](#llm-provider-configuration)
-5. [Logging](#logging)
-6. [CLI Usage](#cli-usage)
+4. [Setup & Dependencies](#setup--dependencies)
+5. [LLM Provider Configuration](#llm-provider-configuration)
+6. [Personal GitHub Push (without office remote)](#personal-github-push-without-office-remote)
+7. [Logging](#logging)
+8. [CLI Usage](#cli-usage)
 
 ---
 
@@ -30,7 +32,7 @@ flowchart TD
     PROMPT["Prompt Loader<br/><code>utils/prompt_loader.py</code>"]
     SCAFFOLD["Doc Scaffold<br/><code>utils/doc_scaffold.py</code>"]
     GEN["Doc Generator<br/><code>utils/doc_generator.py</code>"]
-    AZURE["Azure OpenAI / Foundry"]
+    PROVIDERS["Azure OpenAI / Foundry / OpenAI / Claude / Gemini"]
 
     CLI -->|"1 — detect changes"| GIT
     CLI -->|"2 — run in parallel"| BE
@@ -44,7 +46,7 @@ flowchart TD
     FE -->|"call LLM"| LLM
     FE -->|"hash & write"| SCAFFOLD
 
-    LLM -->|"API call"| AZURE
+    LLM -->|"API call"| PROVIDERS
     SCAFFOLD -->|"tree / sections"| GEN
 ```
 
@@ -136,22 +138,35 @@ flowchart TD
     LOAD --> DETECT{Provider?}
     DETECT -->|azure-openai| AO[_run_azure_openai]
     DETECT -->|foundry| FN[_run_foundry]
+    DETECT -->|openai| OAI[_run_openai]
+    DETECT -->|anthropic| CLAUDE[_run_anthropic]
+    DETECT -->|gemini| GEM[_run_gemini]
     DETECT -->|none| SKIP[Return None]
     AO --> RESP[Return markdown string]
     FN --> RESP
+    OAI --> RESP
+    CLAUDE --> RESP
+    GEM --> RESP
 ```
 
 **Config resolution priority:**
 
-| Variable checked          | Purpose              |
-|---------------------------|----------------------|
-| `DOC_LLM_PROVIDER`       | Explicit provider    |
-| `AZURE_OPENAI_URL`       | Azure endpoint       |
-| `AZURE_OPENAI_KEY`       | Azure API key        |
-| `AZURE_GPT_API`          | API version          |
-| `DOC_LLM_MODEL`          | Model deployment     |
-| `FOUNDRY_PROJECT_ENDPOINT` | Foundry endpoint   |
-| `FOUNDRY_MODEL_DEPLOYMENT` | Foundry deployment |
+| Variable checked             | Purpose                         |
+|-----------------------------|---------------------------------|
+| `DOC_LLM_PROVIDER`          | Explicit provider selection     |
+| `FOUNDRY_PROJECT_ENDPOINT`  | Foundry endpoint                |
+| `FOUNDRY_MODEL_DEPLOYMENT`  | Foundry model deployment        |
+| `AZURE_OPENAI_URL`          | Azure OpenAI endpoint           |
+| `AZURE_OPENAI_KEY`          | Azure OpenAI API key            |
+| `AZURE_GPT_API`             | Azure OpenAI API version        |
+| `AZURE_OPENAI_MODEL`        | Azure model (or `DOC_LLM_MODEL`)|
+| `OPENAI_API_KEY`            | OpenAI API key (ChatGPT)        |
+| `OPENAI_MODEL`              | OpenAI model (or `DOC_LLM_MODEL`)|
+| `ANTHROPIC_API_KEY`         | Anthropic API key (Claude)      |
+| `ANTHROPIC_MODEL`           | Claude model (or `DOC_LLM_MODEL`)|
+| `GEMINI_API_KEY`            | Google Gemini API key           |
+| `GOOGLE_API_KEY`            | Alternate Gemini API key name   |
+| `GEMINI_MODEL`              | Gemini model (or `DOC_LLM_MODEL`)|
 
 ---
 
@@ -174,42 +189,156 @@ backend/documentation_agent/
     ├── doc_generator.py       # Markdown generation helpers (tree, sections)
     ├── doc_scaffold.py        # Hash tracking, metadata, scaffold templates
     ├── git_analyzer.py        # Git diff detection & categorisation
-    ├── llm_client.py          # Azure OpenAI / Foundry LLM calls
+    ├── llm_client.py          # Multi-provider LLM calls (Azure/OpenAI/Claude/Gemini)
     └── prompt_loader.py       # Load prompt templates from disk
+```
+
+---
+
+## Setup & Dependencies
+
+The documentation agent can run with or without an LLM provider.
+
+### 1) Install required libraries
+
+From the repository root:
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r backend/documentation_agent/requirements-docs.txt
+```
+
+`requirements-docs.txt` includes provider SDKs for:
+
+- Azure Foundry (`agent-framework-azure-ai`, `azure-identity`)
+- Azure OpenAI / OpenAI (`openai`)
+- Claude (`anthropic`)
+- Gemini (`google-genai`)
+- `.env` loading (`python-dotenv`)
+
+### 2) Create local environment file
+
+Create or update `backend/.env` and set **one** provider block at a time.
+
+Quick start:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+On Windows PowerShell:
+
+```powershell
+Copy-Item backend/.env.example backend/.env
 ```
 
 ---
 
 ## LLM Provider Configuration
 
-The system reads configuration from the `.env` file located inside `backend/`.
+The system reads configuration from `backend/.env` (fallback: repo-level `.env`).
 
-### Azure OpenAI (default)
+### Provider selector
+
+```env
+DOC_LLM_PROVIDER=azure-openai   # or: foundry | openai | anthropic | gemini
+```
+
+Accepted aliases:
+
+- `chatgpt` → `openai`
+- `claude` → `anthropic`
+- `azure` → `azure-openai`
+- `google` → `gemini`
+
+### Azure OpenAI
 
 ```env
 DOC_LLM_PROVIDER=azure-openai
-DOC_LLM_MODEL=gpt-4.1                          # optional, defaults to gpt-4.1
 AZURE_OPENAI_URL=https://<resource>.openai.azure.com/
-AZURE_OPENAI_KEY=<your-key>
-AZURE_GPT_API=2024-12-01-preview               # optional
+AZURE_OPENAI_KEY=<your-azure-openai-key>
+AZURE_GPT_API=2024-12-01-preview        # optional
+AZURE_OPENAI_MODEL=gpt-4.1              # optional (or use DOC_LLM_MODEL)
 ```
 
 ### Azure Foundry
 
 ```env
 DOC_LLM_PROVIDER=foundry
-FOUNDRY_PROJECT_ENDPOINT=https://<endpoint>
+FOUNDRY_PROJECT_ENDPOINT=https://<your-foundry-project-endpoint>
 FOUNDRY_MODEL_DEPLOYMENT=<deployment-name>
 ```
 
-> If `DOC_LLM_PROVIDER` is not set, the system auto-detects based on which
-> environment variables are present.
+### OpenAI (ChatGPT)
 
-### Fallback Behaviour
+```env
+DOC_LLM_PROVIDER=openai
+OPENAI_API_KEY=<your-openai-api-key>
+OPENAI_MODEL=gpt-4.1                     # optional (or use DOC_LLM_MODEL)
+```
 
-When no LLM configuration is found (or the API call fails), agents fall back
-to **scaffold templates** that produce a skeleton Markdown file with placeholder
-sections. These can be filled in manually later.
+### Anthropic (Claude)
+
+```env
+DOC_LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=<your-anthropic-api-key>
+ANTHROPIC_MODEL=claude-3-7-sonnet-latest # optional (or use DOC_LLM_MODEL)
+```
+
+### Google Gemini
+
+```env
+DOC_LLM_PROVIDER=gemini
+GEMINI_API_KEY=<your-gemini-api-key>     # or GOOGLE_API_KEY
+GEMINI_MODEL=gemini-2.0-flash            # optional (or use DOC_LLM_MODEL)
+```
+
+### Auto-detection behavior
+
+If `DOC_LLM_PROVIDER` is omitted, provider is auto-detected in this order:
+
+1. Foundry
+2. Azure OpenAI
+3. OpenAI
+4. Anthropic
+5. Gemini
+
+### Fallback behaviour
+
+If no valid provider config exists (or provider call fails), the agents fall
+back to scaffold templates and still generate structured placeholder docs.
+
+---
+
+## Personal GitHub Push (without office remote)
+
+Use a separate remote for your personal account, then push to that remote only.
+
+### Option A: Keep office remote, add personal remote
+
+```bash
+git remote -v
+git remote add personal https://github.com/<your-username>/brcgs-ui.git
+git push -u personal <your-branch>
+```
+
+### Option B: Replace `origin` with personal repo
+
+```bash
+git remote -v
+git remote rename origin office
+git remote add origin https://github.com/<your-username>/brcgs-ui.git
+git push -u origin <your-branch>
+```
+
+### Verify before pushing
+
+```bash
+git remote -v
+```
+
+Make sure the remote you are pushing to points to your personal GitHub URL.
 
 ---
 

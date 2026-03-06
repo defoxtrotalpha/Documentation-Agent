@@ -34,10 +34,15 @@ class LLMConfig:
     foundry_project_endpoint: Optional[str] = None
     foundry_model_deployment: Optional[str] = None
     azure_openai_endpoint: Optional[str] = None
-    azure_openai_deployment: Optional[str] = None
     azure_openai_api_key: Optional[str] = None
     azure_openai_api_version: Optional[str] = None
     azure_openai_model: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    openai_model: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    anthropic_model: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    gemini_model: Optional[str] = None
 
 
 _config_loaded: bool = False
@@ -56,7 +61,7 @@ def load_llm_config(env_path: Path | None = None) -> LLMConfig | None:
     elif env_path:
         LOGGER.warning("[llm] env_path does not exist: %s", env_path)
 
-    provider = (os.getenv("DOC_LLM_PROVIDER") or "").strip().lower()
+    provider = _normalize_provider((os.getenv("DOC_LLM_PROVIDER") or "").strip().lower())
     if not provider:
         if os.getenv("FOUNDRY_PROJECT_ENDPOINT") and os.getenv(
             "FOUNDRY_MODEL_DEPLOYMENT"
@@ -64,6 +69,12 @@ def load_llm_config(env_path: Path | None = None) -> LLMConfig | None:
             provider = "foundry"
         elif os.getenv("AZURE_OPENAI_URL"):
             provider = "azure-openai"
+        elif os.getenv("OPENAI_API_KEY"):
+            provider = "openai"
+        elif os.getenv("ANTHROPIC_API_KEY"):
+            provider = "anthropic"
+        elif os.getenv("GEMINI_API_KEY"):
+            provider = "gemini"
         else:
             LOGGER.warning("[llm] No LLM provider configured — generation disabled")
             _config_loaded = True
@@ -77,6 +88,12 @@ def load_llm_config(env_path: Path | None = None) -> LLMConfig | None:
         config = _load_foundry_config()
     elif provider == "azure-openai":
         config = _load_azure_openai_config()
+    elif provider == "openai":
+        config = _load_openai_config()
+    elif provider == "anthropic":
+        config = _load_anthropic_config()
+    elif provider == "gemini":
+        config = _load_gemini_config()
     else:
         LOGGER.warning("[llm] Unknown provider %r", provider)
 
@@ -99,11 +116,26 @@ def _load_foundry_config() -> LLMConfig | None:
     )
 
 
+def _normalize_provider(provider: str) -> str:
+    alias_map = {
+        "azure": "azure-openai",
+        "azure-openai": "azure-openai",
+        "foundry": "foundry",
+        "openai": "openai",
+        "chatgpt": "openai",
+        "anthropic": "anthropic",
+        "claude": "anthropic",
+        "gemini": "gemini",
+        "google": "gemini",
+    }
+    return alias_map.get(provider, provider)
+
+
 def _load_azure_openai_config() -> LLMConfig | None:
     endpoint = (os.getenv("AZURE_OPENAI_URL") or "").strip()
     api_key = (os.getenv("AZURE_OPENAI_KEY") or "").strip()
     api_version = (os.getenv("AZURE_GPT_API") or "").strip() or "2024-12-01-preview"
-    model = (os.getenv("DOC_LLM_MODEL") or "gpt-4.1").strip()
+    model = (os.getenv("AZURE_OPENAI_MODEL") or os.getenv("DOC_LLM_MODEL") or "gpt-4.1").strip()
     if not endpoint or not api_key:
         LOGGER.warning("[llm] Azure OpenAI config incomplete")
         return None
@@ -114,6 +146,52 @@ def _load_azure_openai_config() -> LLMConfig | None:
         azure_openai_api_key=api_key or None,
         azure_openai_api_version=api_version,
         azure_openai_model=model,
+    )
+
+
+def _load_openai_config() -> LLMConfig | None:
+    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    model = (os.getenv("OPENAI_MODEL") or os.getenv("DOC_LLM_MODEL") or "gpt-4.1").strip()
+    if not api_key:
+        LOGGER.warning("[llm] OpenAI config incomplete")
+        return None
+    LOGGER.info("[llm] OpenAI OK — model=%s", model)
+    return LLMConfig(
+        provider="openai",
+        openai_api_key=api_key,
+        openai_model=model,
+    )
+
+
+def _load_anthropic_config() -> LLMConfig | None:
+    api_key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+    model = (
+        os.getenv("ANTHROPIC_MODEL")
+        or os.getenv("DOC_LLM_MODEL")
+        or "claude-3-7-sonnet-latest"
+    ).strip()
+    if not api_key:
+        LOGGER.warning("[llm] Anthropic config incomplete")
+        return None
+    LOGGER.info("[llm] Anthropic OK — model=%s", model)
+    return LLMConfig(
+        provider="anthropic",
+        anthropic_api_key=api_key,
+        anthropic_model=model,
+    )
+
+
+def _load_gemini_config() -> LLMConfig | None:
+    api_key = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+    model = (os.getenv("GEMINI_MODEL") or os.getenv("DOC_LLM_MODEL") or "gemini-2.0-flash").strip()
+    if not api_key:
+        LOGGER.warning("[llm] Gemini config incomplete")
+        return None
+    LOGGER.info("[llm] Gemini OK — model=%s", model)
+    return LLMConfig(
+        provider="gemini",
+        gemini_api_key=api_key,
+        gemini_model=model,
     )
 
 
@@ -180,6 +258,12 @@ async def _dispatch(prompt: str, config: LLMConfig) -> str | None:
         return await _run_foundry(prompt, config)
     if config.provider == "azure-openai":
         return await _run_azure_openai(prompt, config)
+    if config.provider == "openai":
+        return await _run_openai(prompt, config)
+    if config.provider == "anthropic":
+        return await _run_anthropic(prompt, config)
+    if config.provider == "gemini":
+        return await _run_gemini(prompt, config)
     LOGGER.warning("[llm] No handler for provider %r", config.provider)
     return None
 
@@ -219,3 +303,48 @@ async def _run_azure_openai(prompt: str, config: LLMConfig) -> str | None:
     )
     content = response.choices[0].message.content if response.choices else None
     return content.strip() if content else None
+
+
+async def _run_openai(prompt: str, config: LLMConfig) -> str | None:
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(
+        api_key=config.openai_api_key,
+        max_retries=3,
+    )
+    response = await client.chat.completions.create(
+        model=config.openai_model or "gpt-4.1",
+        messages=[{"role": "user", "content": prompt}],
+        stream=False,
+    )
+    content = response.choices[0].message.content if response.choices else None
+    return content.strip() if content else None
+
+
+async def _run_anthropic(prompt: str, config: LLMConfig) -> str | None:
+    from anthropic import AsyncAnthropic
+
+    client = AsyncAnthropic(api_key=config.anthropic_api_key)
+    response = await client.messages.create(
+        model=config.anthropic_model or "claude-3-7-sonnet-latest",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    for block in response.content:
+        text = getattr(block, "text", None)
+        if text:
+            return text.strip()
+    return None
+
+
+async def _run_gemini(prompt: str, config: LLMConfig) -> str | None:
+    from google import genai
+
+    client = genai.Client(api_key=config.gemini_api_key)
+    response = await asyncio.to_thread(
+        client.models.generate_content,
+        model=config.gemini_model or "gemini-2.0-flash",
+        contents=prompt,
+    )
+    text = getattr(response, "text", None)
+    return text.strip() if text else None
